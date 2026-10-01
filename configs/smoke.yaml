@@ -1,0 +1,18 @@
+seed: 42
+batch_size: 2
+steps: 20
+lr: 0.001
+weight_decay: 0.05
+lambda_gram: 1.0
+lambda_rope: 0.1
+gram_warmup: 2
+sample_patches: 4
+model:
+  dim: 64
+  depth: 2
+  heads: 1
+  rotary_dims: [16, 24, 24]
+  target_range: 64.0
+  local_scale: 1.0
+  patch_size: 8
+  tubelet: 2
