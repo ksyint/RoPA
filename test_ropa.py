@@ -2,8 +2,8 @@ import math
 import pytest
 import torch
 from ropa import consistency_loss, paga_loss
-from models.backbone import rotate_pairs, sample_spacing, temporal_frequencies
-from video import propagate_labels
+from models.rotary import rotate_pairs, sample_spacing, temporal_frequencies
+from ropa_tools.data.video.loading import propagate_labels
 
 
 def test_hta_endpoints_and_geometric_ratio():

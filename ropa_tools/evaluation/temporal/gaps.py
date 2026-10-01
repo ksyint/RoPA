@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from models.backbone import cuda_device
-from ropa_tools.evaluation.segmentation.sequence import frame_metrics, load_sequence, load_sequences, summarize_frames
+from ropa_tools.evaluation.temporal.sequence import frame_metrics, load_sequence, load_sequences, summarize_frames
 
 
 def match_frame(source, target, source_labels, shape, topk=10, temperature=.07, radius=12):

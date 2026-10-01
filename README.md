@@ -70,9 +70,9 @@ A JSONL manifest names real video clips, optionally cropped in seconds. Relative
 The loader decodes presentation timestamps, samples 16 frames uniformly within each interval, and applies the released resize, center-crop, and ImageNet normalization. A directory of cached `.npy` clips is also accepted. Arrays must already contain processor-normalized floating point pixels in `C,T,H,W` order.
 
 ```bash
-python ropa.py train --config configs/vjepa2.yaml --data data/train.jsonl \
+python ropa.py train --config vjepa2.yaml --data data/train.jsonl \
   --cache-dir weights/cache --device cuda --output outputs/ropa
-python ropa.py train --config configs/vjepa2.yaml --data data/train.jsonl \
+python ropa.py train --config vjepa2.yaml --data data/train.jsonl \
   --checkpoint outputs/earlier/last.pt --device cuda --output outputs/continued
 ```
 
@@ -102,14 +102,14 @@ python ropa.py sweep --band 160 --jitter narrow --prediction-offset 4 \
 python ropa.py profiles
 ```
 
-Pass any catalog YAML directly to `ropa.py train --config`. Dry-run validates and prints settings without loading models. The builder regenerates profiles from `configs/vjepa2.yaml`.
+Pass any catalog YAML directly to `ropa.py train --config`. Dry-run validates and prints settings without loading models. The builder regenerates profiles from `vjepa2.yaml`.
 
 ## Extract and propagate dense features
 
 ```bash
 python ropa.py extract --checkpoint outputs/ropa/last.pt --data data/validation.jsonl \
   --output outputs/features --device cuda
-python ropa.py extract --config configs/vjepa2.yaml --data data/validation.jsonl \
+python ropa.py extract --config vjepa2.yaml --data data/validation.jsonl \
   --cache-dir weights/cache --output outputs/initial_features --device cuda
 ```
 
@@ -124,13 +124,13 @@ python ropa.py evaluate --target_range 160 --device cuda
 
 Frozen propagation uses first-frame labels plus seven previous predictions, radius-12 locality, top-10 affinities, and temperature 0.07. The evaluator reports foreground patch-grid mean IoU and pixel accuracy.
 
-`models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `video.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
+`models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `ropa_tools/data/video/loading.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
 
 ## Workflow modules
 
 The extended commands cover disjoint clip screening, indexed feature extraction, sequence and point correspondence, checkpoint packages and temporal studies. Their source branches under `ropa_tools/` share the existing pretrained encoder and native training objective.
 
-- [Source layout](docs/architecture/source-layout.md)
+- [Source layout](docs/experiments/source-layout.md)
 - [Checkpoint inspection](docs/artifacts/integrity-and-reuse.md)
 - [Portable checkpoints](docs/artifacts/portable-checkpoints.md)
 - [Clip manifests](docs/data/clip-manifests.md)

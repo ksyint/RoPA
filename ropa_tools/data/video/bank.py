@@ -9,8 +9,8 @@ import torch
 import yaml
 
 from models.backbone import create_model, cuda_device, load_checkpoint_model
-from video import VideoManifest
-from ropa_tools.data.manifests.catalog import clip_identity, read_manifest, write_manifest
+from ropa_tools.data.video.loading import VideoManifest
+from ropa_tools.data.video.catalog import clip_identity, read_manifest, write_manifest
 
 
 def file_digest(path, block_size=1 << 20):
@@ -260,7 +260,7 @@ def main(argv=None):
     build.add_argument('--manifest', required=True)
     build.add_argument('--output', required=True)
     build.add_argument('--checkpoint')
-    build.add_argument('--config', default='configs/vjepa2.yaml')
+    build.add_argument('--config', default='vjepa2.yaml')
     build.add_argument('--pretrained')
     build.add_argument('--cache-dir')
     build.add_argument('--offline', action='store_true')

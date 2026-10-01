@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from models.backbone import cuda_device
-from video import propagate_labels
+from ropa_tools.data.video.loading import propagate_labels
 
 
 def load_sequences(path):

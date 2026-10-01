@@ -16,10 +16,11 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import yaml
 
-from models.backbone import band_diagnostics, temporal_frequencies
+from models.rotary import band_diagnostics, temporal_frequencies
 from models.backbone import create_model, cuda_device, load_checkpoint_model
-from models.backbone import load_initialization, resolve_model_config, sample_spacing
-from video import VideoDataset, VideoManifest, propagate_labels
+from models.backbone import load_initialization, resolve_model_config
+from models.rotary import sample_spacing
+from ropa_tools.data.video.loading import VideoDataset, VideoManifest, propagate_labels
 
 
 def cross_gram(predicted, target):
@@ -225,7 +226,7 @@ RCL = {'0p00': 0.0, '0p01': 0.01, '0p05': 0.05, '0p10': 0.1, '0p20': 0.2}
 def command_profiles(argv=None):
     parser = argparse.ArgumentParser(description='Regenerate the temporal experiment catalog.')
     parser.parse_args(argv)
-    baseline = yaml.safe_load((ROOT / 'configs/vjepa2.yaml').read_text())
+    baseline = yaml.safe_load((ROOT / 'vjepa2.yaml').read_text())
     count = 0
     for band, jitter, predictor, gram, rcl in product(BANDS, SPACING, (2, 4), GRAM, RCL):
         config = copy.deepcopy(baseline)
@@ -338,7 +339,7 @@ def run_train(args):
 def command_train(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='Validate and print the resolved experiment without loading data or CUDA.')
-    parser.add_argument('--config', default='configs/vjepa2.yaml')
+    parser.add_argument('--config', default='vjepa2.yaml')
     parser.add_argument('--data', help='Video JSONL manifest, or directory of already normalized C,T,H,W .npy clips.')
     parser.add_argument('--checkpoint')
     parser.add_argument('--pretrained', help='Official HF V-JEPA 2 ID or local snapshot directory.')
@@ -382,7 +383,7 @@ def run_extract(args):
 def command_extract(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint', help='Trained RoPA checkpoint; otherwise use the released foundation initialization.')
-    parser.add_argument('--config', default='configs/vjepa2.yaml')
+    parser.add_argument('--config', default='vjepa2.yaml')
     parser.add_argument('--pretrained')
     parser.add_argument('--cache-dir')
     parser.add_argument('--offline', action='store_true')
@@ -436,12 +437,12 @@ def command_evaluate(argv=None):
 
 
 COMMANDS = {
-    'manifest': 'ropa_tools.data.manifests.catalog',
-    'features': 'ropa_tools.data.features.bank',
-    'sequences': 'ropa_tools.evaluation.segmentation.sequence',
+    'manifest': 'ropa_tools.data.video.catalog',
+    'features': 'ropa_tools.data.video.bank',
+    'sequences': 'ropa_tools.evaluation.temporal.sequence',
     'temporal': 'ropa_tools.evaluation.temporal.gaps',
-    'checkpoint': 'ropa_tools.experiments.checkpoints.artifacts',
-    'study': 'ropa_tools.experiments.studies.temporal',
+    'checkpoint': 'ropa_tools.experiments.runtime.artifacts',
+    'study': 'ropa_tools.experiments.runtime.temporal',
 
     'sweep': command_sweep,
     'profiles': command_profiles,
