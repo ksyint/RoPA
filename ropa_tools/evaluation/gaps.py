@@ -9,10 +9,12 @@ import torch
 import torch.nn.functional as F
 
 from models.backbone import cuda_device
-from ropa_tools.evaluation.sequence import frame_metrics, load_sequence, load_sequences, summarize_frames
+from ropa_tools.evaluation.sequence import (
+    encode_instance_labels, frame_metrics, load_sequence, load_sequences, summarize_frames,
+)
 
 
-def match_frame(source, target, source_labels, shape, topk=10, temperature=.07, radius=12):
+def match_frame(source, target, source_labels, shape, topk=10, temperature=.07, radius=12, void_label=255):
     if min(topk, temperature) <= 0 or radius < 0:
         raise ValueError('Use positive top-k/temperature and nonnegative search radius.')
     source = F.normalize(source, dim=-1)
@@ -23,23 +25,26 @@ def match_frame(source, target, source_labels, shape, topk=10, temperature=.07, 
     allowed = (grid[:, None] - grid[None, :]).abs().amax(-1) <= radius
     affinities = (target @ source.T / temperature).masked_fill(~allowed, -torch.inf)
     weights, positions = affinities.topk(min(topk, source.shape[0]), dim=-1)
-    classes = int(source_labels.max()) + 1
-    encoded = F.one_hot(source_labels.flatten(), classes).float()
-    return (weights.softmax(-1)[..., None] * encoded[positions]).sum(1).argmax(-1).reshape(height, width)
+    encoded, categories = encode_instance_labels(source_labels, void_label)
+    winners = (weights.softmax(-1)[..., None] * encoded[positions]).sum(1).argmax(-1)
+    return categories[winners].reshape(height, width)
 
 
 def evaluate_gaps(row, gaps, device, options):
     features, labels = load_sequence(row, device)
     records = []
+    void = int(row.get('void_label', 255))
     with torch.no_grad():
         for gap in gaps:
             for target in range(gap, len(features)):
                 source = target - gap
+                if (labels[source] == void).all() or (labels[target] == void).all():
+                    continue
                 prediction = match_frame(features[source], features[target], labels[source],
-                    labels.shape[1:], options['topk'], options['temperature'], options['radius'])
-                categories = [int(value) for value in labels[source].unique().tolist() if value]
+                    labels.shape[1:], options['topk'], options['temperature'], options['radius'], void)
+                categories = [int(value) for value in labels[source].unique().tolist() if value not in (0, void)]
                 for category in categories:
-                    metrics = frame_metrics(prediction, labels[target], category)
+                    metrics = frame_metrics(prediction, labels[target], category, void_label=void)
                     records.append(dict(sequence=row['name'], gap=gap, source=source,
                                         target=target, category=category, **metrics))
     return records
@@ -131,6 +136,7 @@ def run_points(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument('--compare-reports', nargs='+')
     inputs.add_argument('--sequences')
     inputs.add_argument('--points')
     parser.add_argument('--output', required=True)
@@ -140,8 +146,14 @@ def main(argv=None):
     parser.add_argument('--temperature', type=float, default=.07)
     parser.add_argument('--radius', type=int, default=12)
     parser.add_argument('--crossing-ratio', type=float, default=.9)
+    parser.add_argument('--aggregation', choices=('objects', 'frames'), default='objects')
     parser.add_argument('--thresholds', nargs='+', type=float, default=[1, 2, 4, 8, 16])
     args = parser.parse_args(argv)
+    if args.compare_reports:
+        output = Path(args.output)
+        output.mkdir(parents=True, exist_ok=True)
+        (output / 'comparison.json').write_text(json.dumps(compare_gap_reports(args.compare_reports), indent=2) + '\n')
+        return
     if args.points:
         run_points(args)
         return
@@ -151,9 +163,73 @@ def main(argv=None):
     rows = []
     for row in load_sequences(args.sequences):
         rows.extend(evaluate_gaps(row, sorted(set(args.gaps)), device, vars(args)))
-    report = gap_summary(rows, args.crossing_ratio)
+    report = (balanced_gap_summary(rows, args.crossing_ratio) if args.aggregation == 'objects'
+              else gap_summary(rows, args.crossing_ratio))
+    report['coverage'] = gap_support_inventory(rows, args.gaps)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     (output / 'gaps.json').write_text(json.dumps(report, indent=2) + '\n')
     (output / 'pairs.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
     print(json.dumps(report, indent=2))
+
+
+def balanced_gap_summary(records, ratio=.9):
+    per_gap = defaultdict(list)
+    for row in records:
+        per_gap[int(row['gap'])].append(row)
+    summaries = {}
+    for gap, observations in sorted(per_gap.items()):
+        groups = defaultdict(list)
+        for row in observations:
+            groups[(row['sequence'], row['category'])].append(row)
+        objects = [summarize_frames(rows) for rows in groups.values()]
+        summaries[str(gap)] = dict(
+            objects=len(objects), pairs=len(observations),
+            region_iou=sum(row['region_iou'] for row in objects) / len(objects),
+            boundary_f=sum(row['boundary_f'] for row in objects) / len(objects),
+            jf=sum(row['jf'] for row in objects) / len(objects),
+        )
+    if not summaries:
+        raise ValueError('No object pairs were evaluated at any requested temporal gap.')
+    first = min(per_gap)
+    baseline = summaries[str(first)]['jf']
+    crossing = next((gap for gap in sorted(per_gap) if summaries[str(gap)]['jf'] < ratio * baseline), None)
+    return dict(
+        gaps=summaries, baseline_gap=first, threshold_ratio=ratio,
+        first_threshold_crossing=crossing,
+        aggregation='equal weight per foreground object within each temporal gap',
+    )
+
+
+def gap_support_inventory(records, requested):
+    available = defaultdict(lambda: defaultdict(set))
+    for row in records:
+        available[row['gap']][row['sequence']].add((row['source'], row['target']))
+    return {
+        str(gap): dict(sequences=len(available[gap]), frame_pairs=sum(len(pairs) for pairs in available[gap].values()),
+                       evaluated=gap in available and bool(available[gap]))
+        for gap in sorted(set(requested))
+    }
+
+
+def compare_gap_reports(paths):
+    reports = []
+    reference_gaps = None
+    for filename in paths:
+        path = Path(filename)
+        data = json.loads(path.read_text())
+        gaps = data['gaps']
+        keys = tuple(sorted(gaps, key=int))
+        if reference_gaps is None:
+            reference_gaps = keys
+        elif keys != reference_gaps:
+            raise ValueError('Compared temporal sweeps must evaluate identical gap values.')
+        reports.append(dict(path=str(path.resolve()), gaps=gaps,
+                            crossing=data['first_threshold_crossing'], baseline_gap=data['baseline_gap']))
+    if len(reports) < 2:
+        raise ValueError('Gap comparison needs at least two completed sweep reports.')
+    reference = reports[0]
+    for report in reports[1:]:
+        report['jf_difference'] = {gap: report['gaps'][gap]['jf'] - reference['gaps'][gap]['jf']
+                                   for gap in reference_gaps}
+    return reports

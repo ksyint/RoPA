@@ -104,8 +104,8 @@ def extraction_contract(model, config, dataset, checkpoint):
                 raise ValueError('Feature extraction needs a resolved model revision or local checkpoint.')
             weights = {'pretrained': config['model']['pretrained'], 'commit': commit}
     model_id = dictionary_digest({'weights': weights, 'model': config['model']})
-    contract = {'format': 2, 'model_id': model_id, 'frames': dataset.frames,
-                'sampling': 'presentation-time-clip-uniform-rounded-rgb24-v1',
+    contract = {'format': 2, 'model_id': model_id, 'weights': weights, 'frames': dataset.frames,
+                'sampling': 'manifest-frame-or-time-sampling-rgb24-v2',
                 'processor': dataset.processor.to_dict(), 'compute_dtype': 'bfloat16',
                 'storage_dtype': 'float32', 'crop_size': model.backbone.config.crop_size,
                 'patch_size': model.backbone.config.patch_size,
@@ -148,6 +148,10 @@ def extract(args):
     root.mkdir(parents=True, exist_ok=True)
     model, config, device = resolve_model(args)
     rows = read_manifest(args.manifest)
+    if args.frames is not None:
+        if args.frames < 4 or args.frames % 2:
+            raise ValueError('Feature extraction needs an even frame count of at least four.')
+        config.setdefault('data', {})['frames'] = args.frames
     dataset = VideoManifest(args.manifest, config['model'], config.get('data', {}).get('frames', 16))
     processor_directory = root / 'processor'
     geometry = dataset.processor.to_dict()
@@ -165,7 +169,8 @@ def extract(args):
                 if previous is not None:
                     indexed.append(previous)
                     continue
-                pixels = dataset[number][None].to(device)
+                pixels, decode_metadata = dataset.with_metadata(number)
+                pixels = pixels[None].to(device)
                 if signature != source_signature(row['video']):
                     raise ValueError(f'Source video changed during decoding: {row["video"]}')
                 values = model(pixels)[0].float().cpu().numpy()
@@ -183,6 +188,9 @@ def extract(args):
                 size = geometry.get('size', {})
                 record['resize_shorter'] = int(size.get('shortest_edge', crop)) if isinstance(size, dict) else crop
                 record['center_crop'] = bool(geometry.get('do_center_crop', True))
+                from ropa_tools.data.loading import tubelet_timestamps
+                record.update(decode_metadata)
+                record.update(tubelet_timestamps(decode_metadata, record['tubelet_size']))
                 record['processor'] = str(processor_directory)
                 indexed.append(record)
                 write_manifest(index_path, indexed)
@@ -266,6 +274,7 @@ def main(argv=None):
     build.add_argument('--offline', action='store_true')
     build.add_argument('--device', default='cuda')
     build.add_argument('--resume', action='store_true')
+    build.add_argument('--frames', type=int, help='Input frames per extraction clip, including long temporal evaluation clips.')
     inspect = commands.add_parser('inspect')
     inspect.add_argument('--index', required=True)
     inspect.add_argument('--checksum', action='store_true')

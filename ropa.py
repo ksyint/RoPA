@@ -13,7 +13,6 @@ from typing import Iterable
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from models.rotary import band_diagnostics, temporal_frequencies
 from models.backbone import create_model, cuda_device, load_checkpoint_model
@@ -69,7 +68,8 @@ def gram_weight(step, total_steps, weight=1.0, warmup_steps=5000):
 class RoPAObjective(torch.nn.Module):
     """Offset prediction with an explicit anchor axis and one selected temporal offset."""
     def __init__(self, lambda_gram=1.0, lambda_rope=0.1, gram_warmup=5000,
-                 sample_patches=64, target_range=64.0, prediction_offset=1):
+                 sample_patches=64, target_range=64.0, prediction_offset=1,
+                 prediction_offsets=None, consistency_pairs=None, identity_weight=1.):
         super().__init__()
         self.lambda_gram = lambda_gram
         self.lambda_rope = lambda_rope
@@ -77,8 +77,19 @@ class RoPAObjective(torch.nn.Module):
         self.sample_patches = sample_patches
         self.target_range = target_range
         self.prediction_offset = int(prediction_offset)
+        self.prediction_offsets = prediction_offsets
+        self.consistency_pairs = consistency_pairs or [(1, 1)]
+        self.identity_weight = identity_weight
 
     def forward(self, model, anchor, video, spacing, step, total_steps):
+        if self.prediction_offsets is not None:
+            terms = multi_offset_objective(
+                model, anchor, video, spacing, self.prediction_offsets,
+                self.sample_patches, self.target_range, self.consistency_pairs, self.identity_weight,
+            )
+            weight = gram_weight(step, total_steps, self.lambda_gram, self.gram_warmup)
+            return dict(loss=terms['prediction'] + weight * terms['paga'] + self.lambda_rope * terms['rcl'],
+                        prediction=terms['prediction'], paga=terms['paga'], rcl=terms['rcl'], gram_weight=weight)
         features = model(video, spacing)
         delta = self.prediction_offset
         if features.shape[1] <= delta:
@@ -228,7 +239,7 @@ SPACING = {'fixed': dict(enabled=False, low=1.0, high=1.0),
 GRAM = {'0p5': 0.5, '1p0': 1.0}
 RCL = {'0p00': 0.0, '0p01': 0.01, '0p05': 0.05, '0p10': 0.1, '0p20': 0.2}
 PYTHON_PROFILES = frozenset(sorted(product(BANDS, SPACING, (2, 4), GRAM, RCL),
-                                 key=lambda values: profile_yaml_path(*values).as_posix())[:109])
+                                 key=lambda values: profile_yaml_path(*values).as_posix())[:100])
 PROFILE_LAYOUT = catalog_layout(profile_yaml_path(*values).relative_to(ROOT)
     for values in product(BANDS, SPACING, (2, 4), GRAM, RCL))
 
@@ -304,10 +315,15 @@ def run_train(args):
     runtime, optim, objective = config['runtime'], config['optim'], config['objective']
     torch.manual_seed(args.seed if args.seed is not None else runtime['seed'])
     torch.set_num_threads(args.threads)
-    device = cuda_device(args.device)
+    from ropa_tools.training.distributed import ProcessGroup
+    group = ProcessGroup.create(args.device)
+    device = group.device
     if not args.data:
         raise ValueError('--data requires a video JSONL manifest or a preprocessed NPY directory.')
-    checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=True) if args.checkpoint else None
+    if args.checkpoint and args.resume:
+        raise ValueError('Choose weight initialization or full training continuation.')
+    initialization = args.resume or args.checkpoint
+    checkpoint = torch.load(initialization, map_location='cpu', weights_only=True) if initialization else None
     if checkpoint and 'hf_config' in checkpoint['config']['model']:
         config['model']['hf_config'] = checkpoint['config']['model']['hf_config']
     model = create_model(config).to(device)
@@ -316,13 +332,18 @@ def run_train(args):
     if hasattr(model, 'backbone'):
         config['model']['hf_config'] = model.backbone.config.to_dict()
     anchor = copy.deepcopy(model).eval().requires_grad_(False)
+    if args.teacher_checkpoint:
+        if args.resume:
+            raise ValueError('A full continuation restores its fixed teacher from the saved snapshot.')
+        teacher_state = torch.load(args.teacher_checkpoint, map_location='cpu', weights_only=True)
+        load_initialization(anchor, teacher_state)
     if Path(args.data).is_file():
         dataset = VideoManifest(args.data, config['model'], config.get('data', {}).get('frames', 16))
     else:
         dataset = VideoDataset(args.data)
-    loader = DataLoader(dataset, batch_size=runtime['batch_size'], shuffle=True)
+    from ropa_tools.training.engine import decay_groups
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        decay_groups(model, optim['weight_decay']),
         lr=optim['lr'],
         betas=tuple(optim['betas']),
         weight_decay=optim['weight_decay'],
@@ -330,19 +351,17 @@ def run_train(args):
     model_options = resolve_model_config(config)
     criterion = RoPAObjective(**objective, target_range=model_options['target_range'])
     steps = args.steps or runtime['steps']
-    history = train_steps(
-        model, anchor, criterion, loader, optimizer,
-        steps=steps,
-        tubelet=model_options['tubelet'],
-        target_range=model_options['target_range'],
-        device=device,
-        spacing_config=config.get('spacing'),
+    from ropa_tools.training.engine import optimize
+    history = optimize(
+        model, anchor, criterion, dataset, optimizer, config, model_options,
+        steps, device, args.output, args.data, resume=args.resume, seed=args.seed, group=group,
     )
     output = Path(args.output)
-    output.mkdir(parents=True, exist_ok=True)
-    torch.save({'model': model.state_dict(), 'config': config, 'step': steps}, output / 'last.pt')
-    (output / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
-    (output / 'metrics.json').write_text(json.dumps(history, indent=2) + '\n')
+    if group.primary:
+        (output / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
+    group.barrier()
+    group.close()
+    return history
 
 
 def command_train(argv=None):
@@ -351,6 +370,8 @@ def command_train(argv=None):
     parser.add_argument('--config', default='vjepa2.yaml')
     parser.add_argument('--data', help='Video JSONL manifest, or directory of already normalized C,T,H,W .npy clips.')
     parser.add_argument('--checkpoint')
+    parser.add_argument('--teacher-checkpoint', help='Fixed earlier task checkpoint used for Gram anchoring.')
+    parser.add_argument('--resume', help='Continue optimizer, fixed teacher and clip order from last.pt.')
     parser.add_argument('--pretrained', help='Official HF V-JEPA 2 ID or local snapshot directory.')
     parser.add_argument('--cache-dir')
     parser.add_argument('--offline', action='store_true')
@@ -452,6 +473,14 @@ COMMANDS = {
     'temporal': 'ropa_tools.evaluation.gaps',
     'checkpoint': 'ropa_tools.artifacts',
     'study': 'ropa_tools.temporal',
+    'probe': 'ropa_tools.training.probe',
+    'tracking': 'ropa_tools.evaluation.benchmarks',
+    'prepare-tracks': 'ropa_tools.data.tracks',
+    'parsing': 'ropa_tools.evaluation.parsing',
+    'affinity': 'ropa_tools.evaluation.affinity',
+    'composition': 'ropa_tools.evaluation.composition',
+    'intervals': 'ropa_tools.evaluation.bootstrap',
+    'transfer': 'ropa_tools.evaluation.transfer',
 
     'sweep': command_sweep,
     'profiles': command_profiles,
@@ -473,6 +502,52 @@ def main(argv=None):
         from importlib import import_module
         handler = import_module(handler).main
     handler(args.arguments)
+
+
+
+
+def temporal_offsets(features, offsets):
+    if any(type(value) is not int for value in offsets):
+        raise ValueError('Prediction offsets must be integer tubelet distances.')
+    selected = sorted(set(offsets))
+    if not selected or selected[0] < 1 or selected[-1] >= features.shape[1]:
+        raise ValueError('Prediction offsets must fit within the encoded clip duration.')
+    return selected
+
+
+def multi_offset_objective(model, anchor, video, spacing, offsets, sample_patches=64,
+                           target_range=64., consistency_pairs=((1, 1),), identity_weight=1.):
+    if sample_patches < 1:
+        raise ValueError('Gram sampling needs at least one spatial patch.')
+    features = model(video, spacing)
+    selected = temporal_offsets(features, offsets)
+    with torch.no_grad():
+        teacher = anchor(video, spacing)
+    patch_ids = torch.randperm(features.shape[-2], device=features.device)[:sample_patches]
+    prediction_losses, gram_losses, measurements = [], [], []
+    for delta in selected:
+        predicted = model.predictor(features[:, :-delta], delta)
+        with torch.no_grad():
+            teacher_predicted = anchor.predictor(teacher[:, :-delta], delta)
+        prediction = F.mse_loss(F.normalize(predicted, dim=-1), F.normalize(teacher[:, delta:], dim=-1))
+        gram_inputs = [value.flatten(0, 1).unsqueeze(1)
+                       for value in (predicted, features[:, delta:], teacher_predicted, teacher[:, delta:])]
+        gram = paga_loss(*gram_inputs, indices=patch_ids)
+        prediction_losses.append(prediction)
+        gram_losses.append(gram)
+        measurements.append(dict(offset=delta, anchors=predicted.shape[0] * predicted.shape[1],
+                                 prediction=prediction.detach(), gram=gram.detach()))
+    regularizers = [consistency_loss(model.predictor, features[:, 0], first, second,
+                                    target_range, identity_weight, normalize=True)
+                    for first, second in consistency_pairs]
+    if not regularizers:
+        raise ValueError('At least one temporal composition pair is required.')
+    return dict(
+        prediction=torch.stack(prediction_losses).mean(),
+        paga=torch.stack(gram_losses).sum(),
+        rcl=torch.stack(regularizers).mean(),
+        offsets=measurements,
+    )
 
 
 if __name__ == '__main__':

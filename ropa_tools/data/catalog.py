@@ -50,6 +50,10 @@ def write_manifest(path, records):
 
 def clip_identity(record):
     payload = [record['video'], record['start'], record.get('end')]
+    if record.get('stride') is not None:
+        payload.extend([int(record['stride']), int(record.get('frame_start', 0))])
+    if record.get('timestamps') is not None or record.get('sampling', 'uniform') != 'uniform':
+        payload.append(dict(sampling=record.get('sampling', 'uniform'), timestamps=record.get('timestamps')))
     return hashlib.sha256(json.dumps(payload).encode()).hexdigest()
 
 
