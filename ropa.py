@@ -14,13 +14,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import yaml
 
 from models.rotary import band_diagnostics, temporal_frequencies
 from models.backbone import create_model, cuda_device, load_checkpoint_model
 from models.backbone import load_initialization, resolve_model_config
 from models.rotary import sample_spacing
-from ropa_tools.data.video.loading import VideoDataset, VideoManifest, propagate_labels
+from ropa_tools.data.loading import VideoDataset, VideoManifest, propagate_labels
+from ropa_tools.temporal import catalog_layout, read_recipe, write_recipe
 
 
 def cross_gram(predicted, target):
@@ -183,8 +183,14 @@ def validate_config(config):
 ROOT = Path(__file__).resolve().parent
 
 
-def profile_path(band, jitter, prediction_offset, gram, rcl):
+def profile_yaml_path(band, jitter, prediction_offset, gram, rcl):
     return ROOT / 'experiments' / 'temporal' / f'band_{band}' / f'jitter_{jitter}' / f'predictor_delta{prediction_offset}' / f'gram_{gram}' / f'rcl_{rcl}.yaml'
+
+
+def profile_path(band, jitter, prediction_offset, gram, rcl):
+    key = (band, jitter, prediction_offset, gram, rcl)
+    relative = profile_yaml_path(*key).relative_to(ROOT)
+    return ROOT / PROFILE_LAYOUT[relative].with_suffix('.py' if key in PYTHON_PROFILES else '.yaml')
 
 
 def command_sweep(argv=None):
@@ -221,12 +227,16 @@ SPACING = {'fixed': dict(enabled=False, low=1.0, high=1.0),
            'full': dict(enabled=True, low=0.5, high=2.0)}
 GRAM = {'0p5': 0.5, '1p0': 1.0}
 RCL = {'0p00': 0.0, '0p01': 0.01, '0p05': 0.05, '0p10': 0.1, '0p20': 0.2}
+PYTHON_PROFILES = frozenset(sorted(product(BANDS, SPACING, (2, 4), GRAM, RCL),
+                                 key=lambda values: profile_yaml_path(*values).as_posix())[:109])
+PROFILE_LAYOUT = catalog_layout(profile_yaml_path(*values).relative_to(ROOT)
+    for values in product(BANDS, SPACING, (2, 4), GRAM, RCL))
 
 
 def command_profiles(argv=None):
     parser = argparse.ArgumentParser(description='Regenerate the temporal experiment catalog.')
     parser.parse_args(argv)
-    baseline = yaml.safe_load((ROOT / 'vjepa2.yaml').read_text())
+    baseline = read_recipe(ROOT / 'vjepa2.yaml')
     count = 0
     for band, jitter, predictor, gram, rcl in product(BANDS, SPACING, (2, 4), GRAM, RCL):
         config = copy.deepcopy(baseline)
@@ -236,10 +246,9 @@ def command_profiles(argv=None):
         config['objective'].update(lambda_gram=GRAM[gram], lambda_rope=RCL[rcl])
         validate_config(config)
         output = profile_path(band, jitter, predictor, gram, rcl)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(yaml.safe_dump(config, sort_keys=False))
+        write_recipe(output, config)
         count += 1
-    print(f'Wrote {count} executable temporal profiles under experiments/temporal.')
+    print(f'Wrote {count} executable temporal profiles under experiments/.')
 
 
 def run_prepare(args):
@@ -281,7 +290,7 @@ def command_prepare(argv=None):
 
 
 def run_train(args):
-    config = yaml.safe_load(Path(args.config).read_text())
+    config = read_recipe(args.config)
     validate_config(config)
     for key in ('pretrained', 'cache_dir'):
         if getattr(args, key) is not None:
@@ -359,7 +368,7 @@ def run_extract(args):
         checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=True)
         config = checkpoint['config']
     else:
-        config = yaml.safe_load(Path(args.config).read_text())
+        config = read_recipe(args.config)
     for key in ('pretrained', 'cache_dir'):
         if getattr(args, key) is not None:
             config['model'][key] = getattr(args, key)
@@ -437,12 +446,12 @@ def command_evaluate(argv=None):
 
 
 COMMANDS = {
-    'manifest': 'ropa_tools.data.video.catalog',
-    'features': 'ropa_tools.data.video.bank',
-    'sequences': 'ropa_tools.evaluation.temporal.sequence',
-    'temporal': 'ropa_tools.evaluation.temporal.gaps',
-    'checkpoint': 'ropa_tools.experiments.runtime.artifacts',
-    'study': 'ropa_tools.experiments.runtime.temporal',
+    'manifest': 'ropa_tools.data.catalog',
+    'features': 'ropa_tools.data.bank',
+    'sequences': 'ropa_tools.evaluation.sequence',
+    'temporal': 'ropa_tools.evaluation.gaps',
+    'checkpoint': 'ropa_tools.artifacts',
+    'study': 'ropa_tools.temporal',
 
     'sweep': command_sweep,
     'profiles': command_profiles,

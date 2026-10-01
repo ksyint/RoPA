@@ -82,7 +82,7 @@ Training writes `last.pt`, `config.json`, and `metrics.json`. `runtime` controls
 
 ## Temporal experiment catalog
 
-The **240 executable configurations** under `experiments/temporal/` use the same pretrained ViT-g and transformer predictor:
+The **240 executable configurations** under `experiments/` use the same pretrained ViT-g and transformer predictor:
 
 | Axis | Values |
 | --- | --- |
@@ -102,7 +102,7 @@ python ropa.py sweep --band 160 --jitter narrow --prediction-offset 4 \
 python ropa.py profiles
 ```
 
-Pass any catalog YAML directly to `ropa.py train --config`. Dry-run validates and prints settings without loading models. The builder regenerates profiles from `vjepa2.yaml`.
+Pass a catalog Python or YAML file to `ropa.py train --config`. Python recipes contain a single `cfg` dictionary, read as literal data without executing the module. The same formats work for feature extraction and study planning. The builder regenerates the catalog from `vjepa2.yaml`, preserving profile selection and experiment identities.
 
 ## Extract and propagate dense features
 
@@ -124,13 +124,13 @@ python ropa.py evaluate --target_range 160 --device cuda
 
 Frozen propagation uses first-frame labels plus seven previous predictions, radius-12 locality, top-10 affinities, and temperature 0.07. The evaluator reports foreground patch-grid mean IoU and pixel accuracy.
 
-`models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `ropa_tools/data/video/loading.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
+`models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `ropa_tools/data/loading.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
 
 ## Workflow modules
 
 The extended commands cover disjoint clip screening, indexed feature extraction, sequence and point correspondence, checkpoint packages and temporal studies. Their source branches under `ropa_tools/` share the existing pretrained encoder and native training objective.
 
-- [Source layout](docs/experiments/source-layout.md)
+- [Source layout](docs/source-layout.md)
 - [Checkpoint inspection](docs/artifacts/integrity-and-reuse.md)
 - [Portable checkpoints](docs/artifacts/portable-checkpoints.md)
 - [Clip manifests](docs/data/clip-manifests.md)
@@ -140,6 +140,6 @@ The extended commands cover disjoint clip screening, indexed feature extraction,
 - [Point correspondence](docs/evaluation/point-correspondence.md)
 - [Sequence propagation](docs/evaluation/sequence-propagation.md)
 - [Temporal gap measurements](docs/evaluation/temporal-gaps.md)
-- [Temporal studies](docs/experiments/temporal-studies.md)
+- [Temporal studies](docs/temporal-studies.md)
 
 Each extended command exposes its options through `python ropa.py COMMAND --help`. JSON schemas are in `schemas/` and replaceable input examples are in `examples/`.
