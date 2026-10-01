@@ -1,0 +1,1 @@
+{"name": "sequence01", "features": "../../data/evaluation/sequence01/features.npy", "annotation_dir": "../../data/evaluation/sequence01/annotations", "frame_indices": [0, 2, 4, 6, 8, 10, 12, 14], "grid_height": 24, "grid_width": 24, "crop_size": 384, "resize_shorter": 384}

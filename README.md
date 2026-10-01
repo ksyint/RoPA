@@ -125,3 +125,21 @@ python ropa.py evaluate --target_range 160 --device cuda
 Frozen propagation uses first-frame labels plus seven previous predictions, radius-12 locality, top-10 affinities, and temperature 0.07. The evaluator reports foreground patch-grid mean IoU and pixel accuracy.
 
 `models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `video.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
+
+## Workflow modules
+
+The extended commands cover disjoint clip screening, indexed feature extraction, sequence and point correspondence, checkpoint packages and temporal studies. Their source branches under `ropa_tools/` share the existing pretrained encoder and native training objective.
+
+- [Source layout](docs/architecture/source-layout.md)
+- [Checkpoint inspection](docs/artifacts/integrity-and-reuse.md)
+- [Portable checkpoints](docs/artifacts/portable-checkpoints.md)
+- [Clip manifests](docs/data/clip-manifests.md)
+- [Held-out exclusion](docs/data/disjoint-screening.md)
+- [Indexed feature banks](docs/data/feature-banks.md)
+- [Mask alignment](docs/evaluation/mask-alignment.md)
+- [Point correspondence](docs/evaluation/point-correspondence.md)
+- [Sequence propagation](docs/evaluation/sequence-propagation.md)
+- [Temporal gap measurements](docs/evaluation/temporal-gaps.md)
+- [Temporal studies](docs/experiments/temporal-studies.md)
+
+Each extended command exposes its options through `python ropa.py COMMAND --help`. JSON schemas are in `schemas/` and replaceable input examples are in `examples/`.

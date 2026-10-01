@@ -436,6 +436,13 @@ def command_evaluate(argv=None):
 
 
 COMMANDS = {
+    'manifest': 'ropa_tools.data.manifests.catalog',
+    'features': 'ropa_tools.data.features.bank',
+    'sequences': 'ropa_tools.evaluation.segmentation.sequence',
+    'temporal': 'ropa_tools.evaluation.temporal.gaps',
+    'checkpoint': 'ropa_tools.experiments.checkpoints.artifacts',
+    'study': 'ropa_tools.experiments.studies.temporal',
+
     'sweep': command_sweep,
     'profiles': command_profiles,
     'prepare': command_prepare,
@@ -451,7 +458,11 @@ def main(argv=None):
     parser.add_argument('command', choices=COMMANDS)
     parser.add_argument('arguments', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    COMMANDS[args.command](args.arguments)
+    handler = COMMANDS[args.command]
+    if isinstance(handler, str):
+        from importlib import import_module
+        handler = import_module(handler).main
+    handler(args.arguments)
 
 
 if __name__ == '__main__':

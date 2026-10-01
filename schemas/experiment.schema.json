@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Experiment",
+  "type": "object",
+  "required": [
+    "model",
+    "runtime",
+    "optim",
+    "objective"
+  ],
+  "properties": {
+    "model": {
+      "type": "object",
+      "required": [
+        "name",
+        "pretrained",
+        "target_range",
+        "local_scale"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "batch_size",
+        "steps",
+        "seed"
+      ]
+    },
+    "optim": {
+      "type": "object",
+      "required": [
+        "lr",
+        "weight_decay",
+        "betas"
+      ]
+    },
+    "objective": {
+      "type": "object",
+      "required": [
+        "prediction_offset",
+        "lambda_gram",
+        "lambda_rope"
+      ]
+    },
+    "spacing": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

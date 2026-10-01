@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sequence",
+  "type": "object",
+  "required": [
+    "name",
+    "features"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[^/\\\\]+$"
+    },
+    "features": {
+      "type": "string",
+      "minLength": 1
+    },
+    "labels": {
+      "type": "string",
+      "minLength": 1
+    },
+    "annotation_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "frame_indices": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "grid_height": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "grid_width": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "crop_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resize_shorter": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

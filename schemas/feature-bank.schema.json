@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Feature Bank",
+  "type": "object",
+  "required": [
+    "clip_id",
+    "features",
+    "shape",
+    "grid_height",
+    "grid_width",
+    "model_id",
+    "sha256",
+    "cache_key",
+    "source_sha256",
+    "source_bytes",
+    "contract",
+    "contract_sha256"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "features": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shape": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "grid_height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "grid_width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "video": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cache_key": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "contract_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "contract": {
+      "type": "object",
+      "required": [
+        "format",
+        "model_id",
+        "frames",
+        "sampling",
+        "processor",
+        "compute_dtype",
+        "storage_dtype",
+        "crop_size",
+        "patch_size",
+        "tubelet_size"
+      ],
+      "properties": {
+        "format": {
+          "const": 2
+        },
+        "frames": {
+          "type": "integer",
+          "minimum": 4
+        },
+        "processor": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

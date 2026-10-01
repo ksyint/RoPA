@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bundle",
+  "type": "object",
+  "required": [
+    "checkpoint",
+    "processor",
+    "sha256",
+    "processor_files"
+  ],
+  "properties": {
+    "checkpoint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "processor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "processor_files": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": true
+}
