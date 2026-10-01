@@ -3,18 +3,26 @@
 **Improving Video Correspondence with Temporal Rotary Embeddings**
 Carl S. Kim, Junyoung Koh, Kyeonghun Kim, Kumud Dhabhai, Seunghyeok Hong.
 
-An independent PyTorch implementation of the supplied research manuscript. This repository implements the temporal rotary band, spacing jitter, predictor-aligned Gram loss, temporal composition regularization, and frozen label propagation. It contains no pretrained weights or reproduced benchmark claims.
+PyTorch implementation of temporal rotary allocation, spacing jitter, predictor-aligned Gram anchoring, composition regularization, and frozen video correspondence.
 
-## Method
+## Model and objective
 
-- `utils/rope.py`: horizon-derived geometric temporal allocation (Eq. 4), separate temporal/spatial rotary blocks, and per-clip truncated log-uniform spacing jitter. Time is measured in **tubelet steps**.
-- `utils/models.py`: a causal video transformer with tubelet embedding, QK normalization, SwiGLU, LayerScale, and an offset-conditioned residual predictor.
-- `utils/losses.py`: predicted/target cross-Gram alignment (Eq. 5), composition and identity losses (Eq. 6), and the final-10% Gram schedule.
-- `utils/propagation.py`: first-frame plus seven-frame history, local cosine affinity, top-k propagation, temperature 0.07.
+The encoder uses causal tubelet attention, independent temporal/height/width rotary blocks, QK normalization, SwiGLU, and LayerScale. Time coordinates are measured in tubelet steps. The geometric temporal band spans `pi / target_range` to `pi / local_scale`.
 
-The included predictor is a small per-patch residual MLP. Base prediction uses MSE against an earlier, frozen checkpoint. Student and teacher cross-Grams are formed **after prediction** against their own target-frame features. Spatial rotary frequencies use independent base-10000 ladders. The predictor and initialization checkpoint can be replaced for larger experiments.
+An offset-conditioned residual predictor estimates the next latent frame. Training combines latent MSE against a frozen initialization checkpoint, predicted/target cross-Gram alignment, and temporal composition/identity losses. PAGA averages source anchors and sampled patch pairs while summing prediction offsets. Its weight activates during the final 10% of optimization and follows the configured warmup.
 
-## Installation
+| Component | Location |
+| --- | --- |
+| Rotary allocation and temporal spacing | `models/layers/rotary.py` |
+| Causal video encoder | `models/backbones/video.py` |
+| Offset predictor and configurable expansion | `models/heads/predictor.py` |
+| Prediction, PAGA and composition objective | `criterion/pretraining.py` |
+| Step-based optimization | `engine.py` |
+| Frozen affinity propagation | `propagation.py` |
+
+## Prepare data and train
+
+Use a CUDA-enabled PyTorch installation. Model-running commands accept `cuda` or `cuda:N`.
 
 ```bash
 python -m venv .venv
@@ -22,34 +30,58 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Training
+Store each clip as a `.npy` array with shape `C,T,H,W`: three channels, float32 values in `[0,1]` or uint8 pixels. Spatial dimensions must be divisible by the patch size, temporal length by the tubelet size, and clips in a batch must have equal shapes.
 
-```bash
-python train.py --config configs/smoke.yaml --output outputs/smoke
-python -m pytest -q
-python eval.py --target_range 64
-```
-
-The smoke run performs real optimization on generated moving textures. Its frozen teacher starts from random weights and it verifies execution only. For real clips, store each video as `.npy` with shape `C,T,H,W` (three channels, float32 in `[0,1]` or uint8), using dimensions divisible by tubelet/patch size and equal clip sizes within each batch:
+Prepare an initialization checkpoint containing `model` and `config` entries with matching encoder and predictor dimensions. Initialization loads the learned parameters and constructs rotary frequencies from the selected training configuration. The saved configuration records the named architecture and its explicit overrides.
 
 ```bash
 python train.py --config configs/vit_b.yaml --data data/clips \
   --checkpoint outputs/pretrained/last.pt --device cuda --output outputs/ropa
-python inference.py --checkpoint outputs/ropa/last.pt --data data/clips --output outputs/features
+python inference.py --checkpoint outputs/ropa/last.pt --data data/clips \
+  --output outputs/features --device cuda
 ```
 
-The initialization checkpoint must use the same model configuration and the repository checkpoint format (`model`, `config`). Public foundation-model checkpoints need architecture/key conversion; they are not automatically compatible. `vit_b.yaml` describes the paper's dimensional layout, but batch size, loss weights, total steps and predictor architecture are practical configuration choices. This single-process runner does not reproduce the paper's 4096 global batch, data curation, pretrained initialization, 40-epoch warmup/cosine schedule, or complete downstream benchmark suite. Supply licensed HowTo100M/Ego4D data, trained initialization and distributed infrastructure for a comparable experiment.
+`configs/vit_b.yaml` selects a 768-dimensional, 12-layer, 12-head encoder with rotary blocks `(16,24,24)`, patch size 16 and tubelet size 2. Configure optimizer settings under `optim`, sampling/steps under `runtime`, and regularization under `objective`.
 
-## Frozen correspondence
+## Temporal experiment catalog
 
-Store `features` (`T,H*W,D`) and `labels` (`T,H,W`, nonnegative integer IDs, background 0) in an NPZ archive. Features and annotations must share the tubelet timeline and patch grid.
+`experiments/temporal/` contains **240 directly executable training configurations**. Each path identifies a point in the following grid:
+
+| Axis | Values |
+| --- | --- |
+| Temporal horizon | 64, 160, 640, 1280 tubelet steps |
+| Temporal spacing | fixed 1; log-uniform `[0.75,1.5]`; log-uniform `[0.5,2.0]` |
+| Predictor hidden expansion | 2× or 4× encoder dimension |
+| PAGA coefficient | 0.5, 1.0 |
+| Composition coefficient | 0, 0.01, 0.05, 0.10, 0.20 |
+
+These axes control the actual encoder band, coordinate sampling, predictor layers, and optimized losses. The fixed-spacing setting uses one unscaled time coordinate per tubelet. Jittered settings obey the selected band's half-cycle constraint.
+
+Select a profile by experiment coordinates:
 
 ```bash
-python eval.py --data data/sequence.npz --output outputs/prediction.npy
+python tools/band_sweep.py --band 160 --jitter full --predictor-ratio 2 \
+  --gram 1p0 --rcl 0p10 --data data/clips --checkpoint outputs/pretrained/last.pt \
+  --output outputs/band160 --device cuda
 ```
 
-The evaluator reports foreground patch-grid mean IoU and pixel accuracy, not official DAVIS J&F. The first frame provides the only ground-truth labels used during propagation. The included tests verify geometric endpoints, relative-rotation identity, TSJ bounds, PAGA offset scaling and teacher detachment, temporal causality, and correspondence.
+The same file can be passed to `train.py --config`. A different predictor expansion requires an initialization checkpoint with the matching predictor width. Use `--dry-run` to validate settings and inspect the resolved configuration without loading data or starting optimization:
 
-## Citation
+```bash
+python tools/band_sweep.py --band 160 --jitter narrow --predictor-ratio 4 \
+  --gram 0p5 --rcl 0p05 --dry-run
+python tools/build_profiles.py
+```
 
-The supplied manuscript has no verified public identifier here. Cite its published record when available; no venue or identifier is inferred.
+The builder deterministically regenerates the catalog from the ViT-B configuration. Model factories resolve named defaults, explicit YAML options, and checkpoint state keys; training writes `last.pt`, `config.json`, and `metrics.json` to the selected output directory.
+
+## Correspondence evaluation
+
+Prepare an NPZ archive with `features` of shape `T,H*W,D` and nonnegative class-ID `labels` of shape `T,H,W` (background 0). Both arrays must use the same tubelet timeline and patch grid.
+
+```bash
+python eval.py --data data/sequence.npz --output outputs/prediction.npy --device cuda
+python eval.py --target_range 160 --device cuda
+```
+
+Propagation uses first-frame labels plus seven preceding predictions, radius-12 spatial locality, top-10 affinities, and temperature 0.07. The evaluator reports foreground patch-grid mean IoU and pixel accuracy; the band diagnostic reports rotation displacement and the low-frequency half-cycle.

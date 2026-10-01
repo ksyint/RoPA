@@ -1,24 +1,27 @@
 import argparse
 import json
+from pathlib import Path
 
 import numpy as np
 import torch
+from models.runtime import cuda_device
 import torch.nn.functional as F
 
-from utils.propagation import propagate_labels
-from utils.rope import band_diagnostics, temporal_frequencies
+from propagation import propagate_labels
+from models.layers.rotary import band_diagnostics, temporal_frequencies
 
 
 def main(args):
+    args.device = str(cuda_device(args.device))
     if not args.data:
-        frequencies = temporal_frequencies(16, args.target_range, 1)
+        frequencies = temporal_frequencies(16, args.target_range, 1).to(args.device)
         diagnostics = band_diagnostics(frequencies, [1, 2, 32, 64, 128, 256, 512])
         diagnostics['displacement'] = diagnostics['displacement'].tolist()
         print(json.dumps(diagnostics, indent=2))
         return
     with np.load(args.data, allow_pickle=False) as data:
-        features = torch.from_numpy(data['features']).float()
-        labels = torch.from_numpy(data['labels']).long()  # T,H,W
+        features = torch.from_numpy(data['features']).float().to(args.device)
+        labels = torch.from_numpy(data['labels']).long().to(args.device)  # T,H,W
     if labels.min() < 0:
         raise ValueError('Labels must be nonnegative class IDs; remap ignore labels before evaluation.')
     t, h, w = labels.shape
@@ -36,11 +39,14 @@ def main(args):
                       'pixel_accuracy': (result[1:] == labels[1:]).float().mean().item(),
                       'note': 'Patch-grid evaluation; not the official DAVIS J&F evaluator.'}, indent=2))
     if args.output:
-        np.save(args.output, result.numpy())
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        np.save(output, result.cpu().numpy())
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--device', default='cuda')
     parser.add_argument('--data', help='.npz with features T,H*W,D and labels T,H,W')
     parser.add_argument('--target_range', type=float, default=64)
     parser.add_argument('--topk', type=int, default=10)

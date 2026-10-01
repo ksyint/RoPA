@@ -2,7 +2,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 outputs/
-data/
+/data/
 *.pt
 *.pth
 .venv/

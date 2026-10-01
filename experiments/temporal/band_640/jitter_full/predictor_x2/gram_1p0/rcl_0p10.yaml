@@ -1,0 +1,38 @@
+model:
+  dim: 768
+  depth: 12
+  heads: 12
+  rotary_dims:
+  - 16
+  - 24
+  - 24
+  target_range: 640.0
+  local_scale: 1.0
+  patch_size: 16
+  tubelet: 2
+  name: ropa_base
+  predictor_ratio: 2
+runtime:
+  seed: 42
+  batch_size: 8
+  steps: 100000
+optim:
+  lr: 0.0003
+  weight_decay: 0.05
+  betas:
+  - 0.9
+  - 0.95
+objective:
+  lambda_gram: 1.0
+  lambda_rope: 0.1
+  gram_warmup: 5000
+  sample_patches: 64
+synthetic:
+  size: 16
+  frames: 8
+  image_size: 16
+  seed: 42
+spacing:
+  enabled: true
+  low: 0.5
+  high: 2.0
