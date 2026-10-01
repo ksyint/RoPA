@@ -9,7 +9,7 @@ import torch
 
 from models.backbone import create_model, cuda_device, load_checkpoint_model
 from ropa_tools.data.loading import VideoManifest
-from ropa_tools.data.catalog import clip_identity, read_manifest, write_manifest
+from ropa_tools.data.preparation.catalog import clip_identity, read_manifest, write_manifest
 from ropa_tools.temporal import read_recipe
 
 

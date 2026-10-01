@@ -446,8 +446,8 @@ def command_evaluate(argv=None):
 
 
 COMMANDS = {
-    'manifest': 'ropa_tools.data.catalog',
-    'features': 'ropa_tools.data.bank',
+    'manifest': 'ropa_tools.data.preparation.catalog',
+    'features': 'ropa_tools.data.preparation.bank',
     'sequences': 'ropa_tools.evaluation.sequence',
     'temporal': 'ropa_tools.evaluation.gaps',
     'checkpoint': 'ropa_tools.artifacts',
