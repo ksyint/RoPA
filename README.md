@@ -24,11 +24,11 @@ By default Hugging Face stores snapshots under `~/.cache/huggingface/hub/models-
 
 ```bash
 hf download facebook/vjepa2-vitg-fpc64-384 --local-dir weights/vjepa2-vitg-fpc64-384
-python train.py --data data/train.jsonl \
+python ropa.py train --data data/train.jsonl \
   --pretrained weights/vjepa2-vitg-fpc64-384 --offline --device cuda --output outputs/ropa
 ```
 
-The download supplies foundation initialization. `train.py` creates the RoPA task checkpoint used by downstream inference. A saved task checkpoint includes the Hugging Face architecture configuration, all encoder/predictor weights, and rotary buffers. Restoring its model does not fetch foundation weights again. Keep the processor snapshot available through its saved path or override `--pretrained` with a local snapshot directory.
+The download supplies foundation initialization. `ropa.py train` creates the RoPA task checkpoint used by downstream inference. A saved task checkpoint includes the Hugging Face architecture configuration, all encoder/predictor weights, and rotary buffers. Restoring its model does not fetch foundation weights again. Keep the processor snapshot available through its saved path or override `--pretrained` with a local snapshot directory.
 
 ## Acquire and split videos
 
@@ -46,7 +46,7 @@ data/
 Install FFmpeg so `ffprobe` is on PATH. Generate two-second crop manifests and a deterministic split by whole video:
 
 ```bash
-python tools/prepare_videos.py --videos data/videos --output data \
+python ropa.py prepare --videos data/videos --output data \
   --clip-seconds 2 --validation-fraction 0.1 --seed 42
 ```
 
@@ -70,9 +70,9 @@ A JSONL manifest names real video clips, optionally cropped in seconds. Relative
 The loader decodes presentation timestamps, samples 16 frames uniformly within each interval, and applies the released resize, center-crop, and ImageNet normalization. A directory of cached `.npy` clips is also accepted. Arrays must already contain processor-normalized floating point pixels in `C,T,H,W` order.
 
 ```bash
-python train.py --config configs/vjepa2.yaml --data data/train.jsonl \
+python ropa.py train --config configs/vjepa2.yaml --data data/train.jsonl \
   --cache-dir weights/cache --device cuda --output outputs/ropa
-python train.py --config configs/vjepa2.yaml --data data/train.jsonl \
+python ropa.py train --config configs/vjepa2.yaml --data data/train.jsonl \
   --checkpoint outputs/earlier/last.pt --device cuda --output outputs/continued
 ```
 
@@ -95,21 +95,21 @@ The **240 executable configurations** under `experiments/temporal/` use the same
 Each selected offset changes the transformer's target mask positions and the latent/PAGA target frame. The predictor's pretrained dimensions remain fixed.
 
 ```bash
-python tools/band_sweep.py --band 160 --jitter full --prediction-offset 2 \
+python ropa.py sweep --band 160 --jitter full --prediction-offset 2 \
   --gram 1p0 --rcl 0p10 --data data/train.jsonl --device cuda --output outputs/band160
-python tools/band_sweep.py --band 160 --jitter narrow --prediction-offset 4 \
+python ropa.py sweep --band 160 --jitter narrow --prediction-offset 4 \
   --gram 0p5 --rcl 0p05 --dry-run
-python tools/build_profiles.py
+python ropa.py profiles
 ```
 
-Pass any catalog YAML directly to `train.py --config`. Dry-run validates and prints settings without loading models. The builder regenerates profiles from `configs/vjepa2.yaml`.
+Pass any catalog YAML directly to `ropa.py train --config`. Dry-run validates and prints settings without loading models. The builder regenerates profiles from `configs/vjepa2.yaml`.
 
 ## Extract and propagate dense features
 
 ```bash
-python inference.py --checkpoint outputs/ropa/last.pt --data data/validation.jsonl \
+python ropa.py extract --checkpoint outputs/ropa/last.pt --data data/validation.jsonl \
   --output outputs/features --device cuda
-python inference.py --config configs/vjepa2.yaml --data data/validation.jsonl \
+python ropa.py extract --config configs/vjepa2.yaml --data data/validation.jsonl \
   --cache-dir weights/cache --output outputs/initial_features --device cuda
 ```
 
@@ -118,8 +118,10 @@ The second command extracts the foundation-initialized RoPA representation befor
 Prepare a sequence NPZ containing `features` with shape `T,H*W,D` and integer class-ID `labels` with shape `T,H,W`, aligned to the same tubelet timeline and patch grid:
 
 ```bash
-python eval.py --data data/sequence.npz --output outputs/prediction.npy --device cuda
-python eval.py --target_range 160 --device cuda
+python ropa.py evaluate --data data/sequence.npz --output outputs/prediction.npy --device cuda
+python ropa.py evaluate --target_range 160 --device cuda
 ```
 
 Frozen propagation uses first-frame labels plus seven previous predictions, radius-12 locality, top-10 affinities, and temperature 0.07. The evaluator reports foreground patch-grid mean IoU and pixel accuracy.
+
+`models/backbone.py` contains rotary geometry and the pretrained encoder/predictor. `video.py` decodes clips and propagates labels. `ropa.py` owns the objectives, training loop and commands for preparing, training and evaluating a temporal experiment. Run `python ropa.py COMMAND --help` for the options of one command.
