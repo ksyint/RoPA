@@ -10,7 +10,7 @@ def paga_loss(student_prediction, student_target, teacher_prediction, teacher_ta
     """Eq. (5): sum across offsets, average across clips and sampled patch pairs.
 
     Inputs B,offset,N,D. All four tensors use the same patch subset. Teacher
-    structure is detached; target-frame student features retain gradients.
+    structure is detached. Target-frame student features retain gradients.
     """
     features = [student_prediction, student_target, teacher_prediction, teacher_target]
     if any(t.shape != features[0].shape for t in features) or features[0].ndim != 4:
@@ -23,14 +23,18 @@ def paga_loss(student_prediction, student_target, teacher_prediction, teacher_ta
     return (student - teacher).square().mean((-1, -2)).sum(-1).mean()
 
 
-def consistency_loss(predictor, z, delta1, delta2, target_range=64.0, identity_weight=1.0):
+def consistency_loss(predictor, z, delta1, delta2, target_range=64.0, identity_weight=1.0, normalize=False):
     if delta1 < 0 or delta2 < 0 or delta1 + delta2 > target_range:
         raise ValueError('Composition offsets must be nonnegative and sum to at most Tband.')
     direct = predictor(z, delta1 + delta2)
     composed = predictor(predictor(z, delta1), delta2)
+    identity_prediction = predictor(z, 0)
+    if normalize:
+        direct, composed, identity_prediction, z = [F.normalize(value, dim=-1)
+            for value in (direct, composed, identity_prediction, z)]
     # Eq. (6) is squared L2 in feature dimension, followed by an expectation.
     composition = (direct - composed).square().sum(-1).mean()
-    identity = (predictor(z, 0) - z).square().sum(-1).mean()
+    identity = (identity_prediction - z).square().sum(-1).mean()
     return composition + identity_weight * identity
 
 

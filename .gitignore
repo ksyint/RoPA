@@ -6,3 +6,5 @@ outputs/
 *.pt
 *.pth
 .venv/
+
+/weights/

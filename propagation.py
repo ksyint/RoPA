@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 def propagate_labels(features, first_labels, height, width, history=7, topk=10,
                      temperature=0.07, radius=12):
-    """Frozen affinities, first frame + preceding frames; output T,N,C probabilities."""
+    """Frozen affinities, first frame + preceding frames. Output T,N,C probabilities."""
     if features.ndim != 3 or features.shape[1] != height * width:
         raise ValueError('Features must have T,H*W,D shape.')
     if topk <= 0 or temperature <= 0 or history < 1:

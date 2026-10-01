@@ -3,14 +3,20 @@ import math
 
 
 def validate_config(config):
-    required = {'model', 'runtime', 'optim', 'objective', 'synthetic'}
+    required = {'model', 'runtime', 'optim', 'objective'}
     if not required <= config.keys():
         raise ValueError(f'Missing config sections: {sorted(required - config.keys())}')
     model, runtime = config['model'], config['runtime']
     if not 0 < model['local_scale'] <= model['target_range']:
         raise ValueError('Temporal scales must satisfy 0 < T0 <= T*.')
-    if model.get('predictor_ratio', 2) <= 0:
-        raise ValueError('Predictor expansion must be positive.')
+    if config['objective'].get('prediction_offset', 1) < 1:
+        raise ValueError('Prediction offset must be positive.')
+    if model.get('name') != 'vjepa2_giant' or not model.get('pretrained'):
+        raise ValueError('A released V-JEPA 2 model ID or local snapshot is required.')
+    frames = config.get('data', {}).get('frames', 16)
+    offset = config['objective'].get('prediction_offset', 1)
+    if frames % 2 or frames // 2 <= offset:
+        raise ValueError('The even frame count must provide more tubelets than the prediction offset.')
     if runtime['steps'] < 1 or runtime['batch_size'] < 1:
         raise ValueError('Training requires positive steps and batch size.')
     if config['optim']['lr'] <= 0 or config['optim']['weight_decay'] < 0:

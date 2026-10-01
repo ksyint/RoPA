@@ -1,3 +1,1 @@
-from .video import VideoEncoder
-
-__all__ = ["VideoEncoder"]
+"""Foundation-model adapters. Imports stay lazy for configuration inspection."""

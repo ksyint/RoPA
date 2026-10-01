@@ -5,7 +5,6 @@ import torch
 
 from criterion.functional import consistency_loss, paga_loss
 from models.layers.rotary import Rotary3D, rotate_pairs, sample_spacing, temporal_frequencies
-from models import VideoEncoder
 from propagation import propagate_labels
 
 

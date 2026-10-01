@@ -1,0 +1,52 @@
+"""Decode manifest videos and apply the checkpoint's published video processor."""
+from pathlib import Path
+import json
+
+import av
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+from transformers import AutoVideoProcessor
+
+
+class VideoManifest(Dataset):
+    def __init__(self, manifest, model_options, frames=16):
+        self.root = Path(manifest).resolve().parent
+        self.rows = [json.loads(line) for line in Path(manifest).read_text().splitlines() if line.strip()]
+        if not self.rows or frames < 4 or frames % 2:
+            raise ValueError('Supply nonempty video JSONL and an even frame count of at least four.')
+        self.frames = frames
+        self.paths = [Path(row['video']) for row in self.rows]
+        self.processor = AutoVideoProcessor.from_pretrained(
+            model_options['pretrained'], cache_dir=model_options.get('cache_dir'),
+            revision=model_options.get('revision', 'main'),
+            local_files_only=model_options.get('local_files_only', False))
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, index):
+        row = self.rows[index]
+        path = Path(row['video'])
+        path = path if path.is_absolute() else self.root / path
+        start, end = float(row.get('start', 0)), float(row.get('end', float('inf')))
+        frames = []
+        with av.open(str(path)) as container:
+            stream = container.streams.video[0]
+            origin = float((stream.start_time or 0) * stream.time_base)
+            if start > 0:
+                container.seek(int((start + origin) * av.time_base), backward=True)
+            for frame in container.decode(video=0):
+                stamp = float(frame.time) - origin if frame.time is not None else None
+                if stamp is None:
+                    raise ValueError(f'Video frame has no presentation timestamp: {path}')
+                if stamp >= end:
+                    break
+                if stamp >= start:
+                    frames.append(frame.to_ndarray(format='rgb24'))
+        if not frames:
+            raise ValueError(f'No decoded frames inside [{start}, {end}) for {path}')
+        indices = np.linspace(0, len(frames) - 1, self.frames).round().astype(int)
+        video = np.stack([frames[i] for i in indices])
+        values = self.processor(videos=[video], return_tensors='pt')['pixel_values_videos'][0]
+        return values.transpose(0, 1).contiguous()

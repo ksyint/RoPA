@@ -1,4 +1,4 @@
-"""Step-based pretraining engine; data/model construction lives in train.py."""
+"""Step-based pretraining engine. Data/model construction lives in train.py."""
 import json
 from typing import Dict, Iterable
 
@@ -30,7 +30,8 @@ def train_steps(model, anchor, objective, loader, optimizer, *, steps: int,
                                      high=spacing_options.get('high', 2.0), device=device)
         else:
             spacing = video.new_ones(len(video))
-        values = objective(model, anchor, video, spacing, step, steps)
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            values = objective(model, anchor, video, spacing, step, steps)
         optimizer.zero_grad(set_to_none=True)
         values['loss'].backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

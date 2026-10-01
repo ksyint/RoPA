@@ -5,7 +5,7 @@ from torch import nn
 
 
 def temporal_frequencies(dim, target_range=64.0, local_scale=1.0):
-    """HTA, Eq. (4); frequencies ordered from long to short wavelength."""
+    """HTA, Eq. (4). Frequencies ordered from long to short wavelength."""
     if dim < 4 or dim % 2 or not 0 < local_scale <= target_range:
         raise ValueError('HTA needs an even dimension >= 4 and 0 < T0 <= T*.')
     return math.pi / target_range * torch.exp(
@@ -42,7 +42,7 @@ class Rotary3D(nn.Module):
             self.register_buffer(axis + '_freq', 10000 ** (-torch.arange(0, dim, 2).float() / dim))
 
     def forward(self, x, coordinates, spacing=None):
-        # x: B,H,N,D; coordinates: N,3 in tubelet-time, patch-row, patch-column units.
+        # x: B,H,N,D. Coordinates: N,3 in tubelet-time, patch-row, patch-column units.
         if x.shape[-1] != sum(self.dims) or coordinates.shape != (x.shape[-2], 3):
             raise ValueError('Rotary block dimensions or coordinate shape do not match tokens.')
         if spacing is None:
